@@ -24,21 +24,25 @@ const ChatModel40613 = "gpt-4-0613"
 const ChatModel432K = "gpt-4-32k"
 const ChatModel432K0314 = "gpt-4-32k-0314"
 const ChatModel432K0613 = "gpt-4-32k-0613"
+const ChatModel41106Preview = "gpt-4-1106-preview"
+const ChatModel4VisionPreview = "gpt-4-version-preview"
 
 // Models 支持的模型
 var Models = map[string]bool{
-	TextModel:         true,
-	ChatModel:         true,
-	ChatModel0301:     true,
-	ChatModel0613:     true,
-	ChatModel16K:      true,
-	ChatModel16K0613:  true,
-	ChatModel4:        true,
-	ChatModel40314:    true,
-	ChatModel40613:    true,
-	ChatModel432K:     true,
-	ChatModel432K0314: true,
-	ChatModel432K0613: true,
+	TextModel:               true,
+	ChatModel:               true,
+	ChatModel0301:           true,
+	ChatModel0613:           true,
+	ChatModel16K:            true,
+	ChatModel16K0613:        true,
+	ChatModel4:              true,
+	ChatModel40314:          true,
+	ChatModel40613:          true,
+	ChatModel432K:           true,
+	ChatModel432K0314:       true,
+	ChatModel432K0613:       true,
+	ChatModel41106Preview:   true,
+	ChatModel4VisionPreview: true,
 }
 
 var TotalToken = 3900
