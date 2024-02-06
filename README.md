@@ -5,6 +5,14 @@
 > 本项目开源免费，不开知识星球，没有付费环节，除了最后给我自己的公众号【积木成楼】打了广告，
 > 未在 GitHub 以外的地方进行引流操作。请谨记，要求你付费的都是骗子！
 
+## 升级指引(v1.0.0 目前还处开发期,稳定版本使用 v0.6.6)
+- 原始功能基本不受影响，但数据库切换到 `pgsql` 方便 向量化查询
+- 支持了 Google 的 Gemini-pro 每个 token 60/m 的调用还是很香
+- 支持了 web bot 设置，同时支持将 bot 发布到客服
+- web 项目地址 [https://github.com/whyiyhw/agent-web](https://github.com/whyiyhw/agent-web) 前端苦手，全靠 Gemini 配合写的页面
+- 支持了最新的企业微信客服协议
+- 项目小助手，有问题可以先问它哦 ➡️➡️➡️ ![img.png](doc/imgv101.png)
+
 ## 主要能力（[点击查看详情](./doc/ability.md)）
 
 - 微信可用：基于企业微信中转，可在微信中安全使用
@@ -99,7 +107,7 @@
   - 应用消息的 关键字为 `应用消息-发送失败 err:` 
   - 客服消息的 关键字为 `客服消息-发送失败 err:`
 - 如果存在 `Code 41001， Msg: "access token mising` ... 等 access_token 异常的,请再次确认
-安装流程中的对应参数`CorpID ,corpSercret ,agentID` 是否正确配置
+安装流程中的对应参数`CorpID ,agentSercret ,agentID` 是否正确配置
 </details>
 
 ### 服务器在国内，出现 `connect: connection refused`
@@ -132,6 +140,18 @@ RedisCache:
 requirepass "xxxxx"
 ```
 - 最后 `docker-compose down && docker-compose up -d` 重启整个服务
+</details>
+
+### 更新后 redis 服务启动失败或者连不上redis？
+<details>
+<summary></summary>
+
+> 请考虑删除 `chat/build/redis/data/` 下的文件，可能是因为旧版本的 redis 存在残留文件导致的
+
+- 请先 `docker-compose down` 停止服务
+- 然后 删除redis 本地文件 `chat/build/redis/data/` 下的文件
+- 最后 `docker-compose up -d` 重启服务
+
 </details>
 
 ## 感谢以下朋友对于本项目的大力支持~

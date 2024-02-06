@@ -98,33 +98,43 @@ func (c *UserContext) WithTimeOut(timeOut int64) *UserContext {
 	return c
 }
 
-func (c *UserContext) Set(q, a string, save bool) *UserContext {
+func (c *UserContext) Set(q ChatContent, a, conversationId string, save bool) *UserContext {
 
-	if q != "" {
+	if q.Data != "" {
 		c.Messages = append(c.Messages, ChatModelMessage{
-			Role:    "user",
-			Content: q,
+			MessageId: conversationId,
+			Role:      UserRole,
+			Content: ChatContent{
+				MIMEType: q.MIMEType,
+				Data:     q.Data,
+			},
+		})
+		c.Summary = append(c.Summary, ChatModelMessage{
+			MessageId: conversationId,
+			Role:      UserRole,
+			Content: ChatContent{
+				MIMEType: q.MIMEType,
+				Data:     q.Data,
+			},
 		})
 	}
 
 	if a != "" {
 		c.Messages = append(c.Messages, ChatModelMessage{
-			Role:    "assistant",
-			Content: a,
+			MessageId: conversationId,
+			Role:      ModelRole,
+			Content: ChatContent{
+				MIMEType: MimetypeTextPlain,
+				Data:     a,
+			},
 		})
-	}
-
-	if q != "" {
 		c.Summary = append(c.Summary, ChatModelMessage{
-			Role:    "user",
-			Content: q,
-		})
-	}
-
-	if a != "" {
-		c.Summary = append(c.Summary, ChatModelMessage{
-			Role:    "assistant",
-			Content: a,
+			MessageId: conversationId,
+			Role:      ModelRole,
+			Content: ChatContent{
+				MIMEType: MimetypeTextPlain,
+				Data:     a,
+			},
 		})
 	}
 
@@ -137,37 +147,37 @@ func (c *UserContext) Set(q, a string, save bool) *UserContext {
 
 		// 窗口给 1/8 的 MaxToken 其他的都需要摘要到 summary 中
 
-		maxWindowToken := c.Client.MaxToken / 6
-		fmt.Println("maxWindowToken", maxWindowToken)
-		maxWord := maxWindowToken / 5
-		fmt.Println("maxWord", maxWord)
-		var currChatModelMessage []ChatModelMessage
+		//maxWindowToken := c.Client.MaxToken / 6
+		//fmt.Println("maxWindowToken", maxWindowToken)
+		//maxWord := maxWindowToken / 5
+		//fmt.Println("maxWord", maxWord)
+		//var currChatModelMessage []ChatModelMessage
 		//当录入最新的对话信息时，从新到旧，一轮轮累加评估，是否大于设置的 maxWindowToken
 		//如果大于，就会对那一轮之前的对话进行 summery + 窗口内的会话，得到实际的上下文环境
-		for i := 0; i < len(c.Summary); i++ {
-			s := c.Summary[len(c.Summary)-i-1]
-			currChatModelMessage = append(currChatModelMessage, s)
-			if i%2 == 0 {
-				continue
-			}
-			if NumTokensFromMessages(currChatModelMessage, c.Model) > maxWindowToken &&
-				NumTokensFromMessages(c.Summary[:len(c.Summary)-i-1], c.Model) > maxWindowToken {
-				// 去总结 这个数据之前的数据
-				go func() {
-					newSummary, err := c.doSummary(c.Summary[:len(c.Summary)-i-1], maxWord)
-					if err != nil {
-						fmt.Println("summary error", err)
-						return
-					}
-					// 将新的 summary 赋值给 c.Summary
-					c.Summary = append(newSummary, c.Summary[len(c.Summary)-i-1:]...)
-					// 重新保存数据
-					byteData, _ := json.Marshal(c)
-					redis.Rdb.Set(context.Background(), getSessionKey(c.SessionKey), string(byteData), time.Duration(c.TimeOut)*time.Minute)
-				}()
-				break
-			}
-		}
+		//for i := 0; i < len(c.Summary); i++ {
+		//	s := c.Summary[len(c.Summary)-i-1]
+		//	currChatModelMessage = append(currChatModelMessage, s)
+		//	if i%2 == 0 {
+		//		continue
+		//	}
+		//	if NumTokensFromMessages(currChatModelMessage, c.Model) > maxWindowToken &&
+		//		NumTokensFromMessages(c.Summary[:len(c.Summary)-i-1], c.Model) > maxWindowToken {
+		//		// 去总结 这个数据之前的数据
+		//		go func() {
+		//			newSummary, err := c.doSummary(c.Summary[:len(c.Summary)-i-1], maxWord)
+		//			if err != nil {
+		//				fmt.Println("summary error", err)
+		//				return
+		//			}
+		//			// 将新的 summary 赋值给 c.Summary
+		//			c.Summary = append(newSummary, c.Summary[len(c.Summary)-i-1:]...)
+		//			// 重新保存数据
+		//			byteData, _ := json.Marshal(c)
+		//			redis.Rdb.Set(context.Background(), getSessionKey(c.SessionKey), string(byteData), time.Duration(c.TimeOut)*time.Minute)
+		//		}()
+		//		break
+		//	}
+		//}
 	}
 	return c
 }
@@ -195,9 +205,9 @@ func (c *UserContext) doSummary(summary []ChatModelMessage, maxWord int) ([]Chat
 
 	for _, v := range summary[first:] {
 		if v.Role == "assistant" {
-			currSummary += "A: " + v.Content + "\n"
+			currSummary += "A: " + v.Content.Data + "\n"
 		} else {
-			currSummary += "Q: " + v.Content + "\n"
+			currSummary += "Q: " + v.Content.Data + "\n"
 		}
 	}
 
@@ -208,8 +218,12 @@ func (c *UserContext) doSummary(summary []ChatModelMessage, maxWord int) ([]Chat
 
 	// 调用 openai api 进行 summary 简化到 100 字以内
 	sc := c
-	summaryStr, err := sc.Client.WithModel(ChatModel).WithMaxToken(1500).WithTemperature(0).
-		Chat([]ChatModelMessage{{Role: "system", Content: prompt}, {Role: "user", Content: currSummary}})
+	summaryStr, err := sc.Client.WithModel(ChatModel).WithMaxToken(1500).
+		WithTemperature(0).
+		Chat([]ChatModelMessage{
+			{Role: SystemRole, Content: NewChatContent(prompt)},
+			{Role: UserRole, Content: NewChatContent(currSummary)},
+		})
 
 	logx.Info("summary_reps", ": "+summaryStr)
 	logx.Info("summary_reps_length", ": ", len([]rune(summaryStr)))
@@ -230,12 +244,12 @@ func (c *UserContext) doSummary(summary []ChatModelMessage, maxWord int) ([]Chat
 
 		for _, val := range summary.Summary {
 			newSummary = append(newSummary, ChatModelMessage{
-				Role:    "user",
-				Content: val.Q,
+				Role:    UserRole,
+				Content: NewChatContent(val.Q),
 			})
 			newSummary = append(newSummary, ChatModelMessage{
-				Role:    "assistant",
-				Content: val.A,
+				Role:    ModelRole,
+				Content: NewChatContent(val.A),
 			})
 		}
 	} else {
@@ -252,13 +266,13 @@ func (c *UserContext) GetCompletionSummary() string {
 	l := len(c.Summary)
 	for k, val := range c.Summary {
 		switch val.Role {
-		case "user":
-			basePrompt += "Q: " + val.Content + "\n"
+		case UserRole:
+			basePrompt += "Q: " + val.Content.Data + "\n"
 			if l == k+1 {
 				basePrompt += "A: "
 			}
-		case "assistant":
-			basePrompt += "A: " + val.Content + "\n"
+		case ModelRole:
+			basePrompt += "A: " + val.Content.Data + "\n"
 		}
 	}
 	return basePrompt
@@ -268,8 +282,8 @@ func (c *UserContext) GetCompletionSummary() string {
 func (c *UserContext) GetChatSummary() []ChatModelMessage {
 	var summary []ChatModelMessage
 	summary = append(summary, ChatModelMessage{
-		Role:    "system",
-		Content: c.Prompt,
+		Role:    SystemRole,
+		Content: NewChatContent(c.Prompt),
 	})
 	summary = append(summary, c.Summary...)
 	return summary
@@ -280,13 +294,13 @@ func (c *UserContext) getCompletionSummary() string {
 	l := len(c.Summary)
 	for k, val := range c.Summary {
 		switch val.Role {
-		case "user":
-			basePrompt += "Q: " + val.Content + "\n"
+		case UserRole:
+			basePrompt += "Q: " + val.Content.Data + "\n"
 			if l == k+1 {
 				basePrompt += "A: "
 			}
-		case "assistant":
-			basePrompt += "A: " + val.Content + "\n"
+		case ModelRole:
+			basePrompt += "A: " + val.Content.Data + "\n"
 		}
 	}
 	return basePrompt
@@ -296,8 +310,8 @@ func (c *UserContext) getCompletionSummary() string {
 func (c *UserContext) SaveAllChatMessage(prefix string) (string, error) {
 	var summary []ChatModelMessage
 	summary = append(summary, ChatModelMessage{
-		Role:    "system",
-		Content: c.Prompt,
+		Role:    SystemRole,
+		Content: NewChatContent(c.Prompt),
 	})
 	summary = append(summary, c.Messages...)
 	var str []byte
@@ -306,7 +320,7 @@ func (c *UserContext) SaveAllChatMessage(prefix string) (string, error) {
 	} else {
 		for _, val := range summary {
 			str = append(str, []byte(val.Role+":\n")...)
-			str = append(str, []byte(val.Content+"\n")...)
+			str = append(str, []byte(val.Content.Data+"\n")...)
 		}
 	}
 
@@ -396,7 +410,7 @@ func NumTokensFromMessages(messages []ChatModelMessage, model string) (numTokens
 
 	for _, message := range messages {
 		numTokens += tokensPerMessage
-		numTokens += len(tkm.Encode(message.Content, nil, nil))
+		numTokens += len(tkm.Encode(message.Content.Data, nil, nil))
 		numTokens += len(tkm.Encode(message.Role, nil, nil))
 	}
 	numTokens += 3

@@ -16,13 +16,13 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			[]rest.Route{
 				{
 					Method:  http.MethodPost,
-					Path:    "/user/register",
-					Handler: UserRegisterHandler(serverCtx),
+					Path:    "/user/login",
+					Handler: UserLoginHandler(serverCtx),
 				},
 				{
 					Method:  http.MethodPost,
-					Path:    "/user/login",
-					Handler: UserLoginHandler(serverCtx),
+					Path:    "/user/register",
+					Handler: UserRegisterHandler(serverCtx),
 				},
 			}...,
 		),
@@ -35,13 +35,173 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			[]rest.Route{
 				{
 					Method:  http.MethodPost,
-					Path:    "/msg/push",
-					Handler: ChatHandler(serverCtx),
+					Path:    "/bot/chat",
+					Handler: BotChatHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/bot/chat/history",
+					Handler: BotChatHistoryHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/bot/chat/history/clear",
+					Handler: BotChatHistoryClearHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/bot/create",
+					Handler: BotCreateHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/bot/customer/list",
+					Handler: CustomerListHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/bot/customer/update",
+					Handler: BotCustomerUpdateHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/bot/delete",
+					Handler: BotDeleteHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/bot/detail",
+					Handler: BotDetailHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/bot/explore/list",
+					Handler: BotExploreListHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/bot/knowledge/update",
+					Handler: BotKnowledgeUpdateHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/bot/list",
+					Handler: BotListHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/bot/model/detail",
+					Handler: BotModelDetailHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/bot/model/update",
+					Handler: BotModelUpdateHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/bot/prompt/optimize",
+					Handler: BotOptimizePromptHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/bot/prompt/update",
+					Handler: BotPromptUpdateHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/bot/replicate",
+					Handler: BotReplicateHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/bot/update",
+					Handler: BotUpdateHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/knowledge/create",
+					Handler: KnowledgeCreateHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/knowledge/delete",
+					Handler: KnowledgeDeleteHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/knowledge/list",
+					Handler: KnowledgeListHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/knowledge/segments/create",
+					Handler: KnowledgeSegmentsCreateHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/knowledge/segments/delete",
+					Handler: KnowledgeSegmentsDeleteHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/knowledge/segments/list",
+					Handler: KnowledgeSegmentsListHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/knowledge/segments/update",
+					Handler: KnowledgeSegmentsUpdateHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/knowledge/unit/create",
+					Handler: KnowledgeUnitCreateHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/knowledge/unit/delete",
+					Handler: KnowledgeUnitDeleteHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/knowledge/unit/detail",
+					Handler: KnowledgeUnitDetailHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/knowledge/unit/list",
+					Handler: KnowledgeUnitListHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/knowledge/unit/switch",
+					Handler: KnowledgeUnitSwitchHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/knowledge/unit/update",
+					Handler: KnowledgeUnitUpdateHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/knowledge/update",
+					Handler: KnowledgeUpdateHandler(serverCtx),
 				},
 				{
 					Method:  http.MethodPost,
 					Path:    "/msg/customer/push",
 					Handler: CustomerChatHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/msg/push",
+					Handler: ChatHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodGet,
+					Path:    "/user/detail",
+					Handler: UserDetailHandler(serverCtx),
 				},
 			}...,
 		),

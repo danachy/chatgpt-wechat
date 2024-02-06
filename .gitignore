@@ -25,3 +25,7 @@ go.work
 .DS_Store
 chat-api.yaml
 venv
+chat/build/mysql/data/*
+chat/build/pgvector/data/*
+chat/build/redis/data/*
+chat/service/chat/api/etc/chat-test-api.yaml

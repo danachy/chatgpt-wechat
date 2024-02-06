@@ -4,16 +4,17 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"io"
-	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"chat/common/ali/ocr"
 	"chat/common/draw"
+	"chat/common/gemini"
 	"chat/common/milvus"
 	"chat/common/openai"
 	"chat/common/plugin"
@@ -24,8 +25,8 @@ import (
 	"chat/service/chat/api/internal/types"
 	"chat/service/chat/model"
 
-	"github.com/Masterminds/squirrel"
 	"github.com/zeromicro/go-zero/core/logx"
+	"gorm.io/gorm"
 )
 
 type ChatLogic struct {
@@ -48,19 +49,143 @@ func NewChatLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ChatLogic {
 
 func (l *ChatLogic) Chat(req *types.ChatReq) (resp *types.ChatReply, err error) {
 
+	uuidObj, err := uuid.NewUUID()
+	if err != nil {
+		go sendToUser(req.AgentID, req.UserID, "系统错误 会话唯一标识生成失败", l.svcCtx.Config)
+	}
+	conversationId := uuidObj.String()
+
+	// 去 gemini 获取数据
+	if req.Channel == "gemini" {
+
+		// gemini client
+		c := gemini.NewChatClient(l.svcCtx.Config.Gemini.Key).WithHost(l.svcCtx.Config.Gemini.Host).
+			WithTemperature(l.svcCtx.Config.Gemini.Temperature)
+		if l.svcCtx.Config.Gemini.EnableProxy {
+			c = c.WithHttpProxy(l.svcCtx.Config.Proxy.Http).WithSocks5Proxy(l.svcCtx.Config.Proxy.Socket5).
+				WithProxyUserName(l.svcCtx.Config.Proxy.Auth.Username).
+				WithProxyPassword(l.svcCtx.Config.Proxy.Auth.Password)
+		}
+		// 指令匹配， 根据响应值判定是否需要去调用 gemini 接口了
+		proceed, _ := l.FactoryCommend(req)
+		if !proceed {
+			return &types.ChatReply{
+				Message: "ok",
+			}, nil
+		}
+		if l.message != "" {
+			req.MSG = l.message
+		}
+
+		// 从上下文中取出用户对话
+		collection := gemini.NewUserContext(
+			gemini.GetUserUniqueID(req.UserID, strconv.FormatInt(req.AgentID, 10)),
+		).WithModel(c.Model).
+			WithPrompt(l.svcCtx.Config.Gemini.Prompt).
+			WithClient(c).
+			WithImage(req.AgentID, req.UserID). // 为后续版本做准备，Gemini 暂时不支持图文问答展示
+			Set(gemini.NewChatContent(req.MSG), "", conversationId, false)
+
+		prompts := collection.GetChatSummary()
+
+		fmt.Println("上下文请求信息： collection.Prompt" + collection.Prompt)
+		fmt.Println(prompts)
+		go func() {
+			// 分段响应
+			if l.svcCtx.Config.Response.Stream {
+				channel := make(chan string, 100)
+
+				go func() {
+					messageText, err := c.ChatStream(prompts, channel)
+					if err != nil {
+						errInfo := err.Error()
+						if strings.Contains(errInfo, "maximum context length") {
+							errInfo += "\n 请使用 #clear 清理所有上下文"
+						}
+						sendToUser(req.AgentID, req.UserID, "系统错误:"+err.Error(), l.svcCtx.Config)
+						return
+					}
+					collection.Set(gemini.NewChatContent(), messageText, conversationId, true)
+					// 再去插入数据
+					table := l.svcCtx.ChatModel.Chat
+					_ = table.WithContext(context.Background()).Create(&model.Chat{
+						AgentID:    req.AgentID,
+						User:       req.UserID,
+						ReqContent: req.MSG,
+						ResContent: messageText,
+					})
+				}()
+
+				var rs []rune
+				first := true
+				for {
+					s, ok := <-channel
+					fmt.Printf("--------接受到数据: s:%s pk:%v", s, ok)
+					if !ok {
+						// 数据接受完成
+						if len(rs) > 0 {
+							go sendToUser(req.AgentID, req.UserID, string(rs)+"\n--------------------------------\n"+req.MSG, l.svcCtx.Config)
+						}
+						return
+					}
+					rs = append(rs, []rune(s)...)
+
+					if first && len(rs) > 50 && strings.LastIndex(string(rs), "\n") != -1 {
+						lastIndex := strings.LastIndex(string(rs), "\n")
+						firstPart := string(rs)[:lastIndex]
+						secondPart := string(rs)[lastIndex+1:]
+						// 发送数据
+						go sendToUser(req.AgentID, req.UserID, firstPart, l.svcCtx.Config)
+						rs = []rune(secondPart)
+						first = false
+					} else if len(rs) > 200 && strings.LastIndex(string(rs), "\n") != -1 {
+						lastIndex := strings.LastIndex(string(rs), "\n")
+						firstPart := string(rs)[:lastIndex]
+						secondPart := string(rs)[lastIndex+1:]
+						go sendToUser(req.AgentID, req.UserID, firstPart, l.svcCtx.Config)
+						rs = []rune(secondPart)
+					}
+				}
+			} else {
+				messageText, err := c.Chat(prompts)
+
+				fmt.Printf("gemini resp: %v \n", messageText)
+				if err != nil {
+					errInfo := err.Error()
+					if strings.Contains(errInfo, "maximum context length") {
+						errInfo += "\n 请使用 #clear 清理所有上下文"
+					}
+					sendToUser(req.AgentID, req.UserID, "系统错误-gemini-resp-error:"+err.Error(), l.svcCtx.Config)
+					return
+				}
+
+				// 把数据 发给微信用户
+				go sendToUser(req.AgentID, req.UserID, messageText, l.svcCtx.Config)
+
+				collection.Set(gemini.NewChatContent(), messageText, conversationId, true)
+
+				// 再去插入数据
+				table := l.svcCtx.ChatModel.Chat
+				_ = table.WithContext(context.Background()).Create(&model.Chat{
+					AgentID:    req.AgentID,
+					User:       req.UserID,
+					ReqContent: req.MSG,
+					ResContent: messageText,
+				})
+			}
+		}()
+	}
+
 	// 去找 openai 获取数据
 	if req.Channel == "openai" {
 		l.setModelName(req.AgentID).setBasePrompt(req.AgentID).setBaseHost()
 
 		// 如果用户有自定义的配置，就使用用户的配置
-		configCollection, configErr := l.svcCtx.ChatConfigModel.FindOneByQuery(
-			context.Background(),
-			l.svcCtx.ChatConfigModel.RowBuilder().
-				Where(squirrel.Eq{"user": req.UserID}).
-				Where(squirrel.Eq{"agent_id": req.AgentID}).
-				OrderBy("id desc"),
-		)
-		if configErr == nil && configCollection.Id > 0 {
+		table := l.svcCtx.ChatConfigModel.ChatConfig
+		configCollection, configErr := table.WithContext(context.Background()).
+			Where(table.User.Eq(req.UserID)).Where(table.AgentID.Eq(req.AgentID)).
+			Order(table.ID.Desc()).First()
+		if configErr == nil && configCollection.ID > 0 {
 			l.basePrompt = configCollection.Prompt
 			l.model = configCollection.Model
 		}
@@ -86,7 +211,7 @@ func (l *ChatLogic) Chat(req *types.ChatReq) (resp *types.ChatReply, err error) 
 			WithTemperature(l.svcCtx.Config.OpenAi.Temperature).
 			WithTotalToken(l.svcCtx.Config.OpenAi.TotalToken)
 
-		if l.svcCtx.Config.Proxy.Enable {
+		if l.svcCtx.Config.OpenAi.EnableProxy {
 			c = c.WithHttpProxy(l.svcCtx.Config.Proxy.Http).WithSocks5Proxy(l.svcCtx.Config.Proxy.Socket5).
 				WithProxyUserName(l.svcCtx.Config.Proxy.Auth.Username).
 				WithProxyPassword(l.svcCtx.Config.Proxy.Auth.Password)
@@ -211,7 +336,7 @@ func (l *ChatLogic) Chat(req *types.ChatReq) (resp *types.ChatReply, err error) 
 							req.MSG, runPluginInfo.PluginName, runPluginInfo.Input, runPluginInfo.Output, runPluginInfo.PluginName,
 						)
 						// 插件处理成功，存入上下文
-						collection.Set(q, "ok", false)
+						collection.Set(openai.NewChatContent(q), "ok", conversationId, false)
 						if l.svcCtx.Config.Plugins.Debug {
 							// 通知用户正在使用插件并响应结果
 							go sendToUser(req.AgentID, req.UserID, fmt.Sprintf(
@@ -226,9 +351,9 @@ func (l *ChatLogic) Chat(req *types.ChatReq) (resp *types.ChatReply, err error) 
 			// 基于 summary 进行补充
 			messageText := ""
 			for _, chat := range embeddingData {
-				collection.Set(chat.Q, chat.A, false)
+				collection.Set(openai.NewChatContent(chat.Q), chat.A, conversationId, false)
 			}
-			collection.Set(req.MSG, "", false)
+			collection.Set(openai.NewChatContent(req.MSG), "", conversationId, false)
 			prompts := collection.GetChatSummary()
 
 			// 分段响应
@@ -249,10 +374,11 @@ func (l *ChatLogic) Chat(req *types.ChatReq) (resp *types.ChatReply, err error) 
 						sendToUser(req.AgentID, req.UserID, "系统错误:"+err.Error(), l.svcCtx.Config)
 						return
 					}
-					collection.Set("", messageText, true)
+					collection.Set(openai.NewChatContent(), messageText, conversationId, true)
 					// 再去插入数据
-					_, _ = l.svcCtx.ChatModel.Insert(context.Background(), &model.Chat{
-						AgentId:    req.AgentID,
+					table := l.svcCtx.ChatModel.Chat
+					_ = table.WithContext(context.Background()).Create(&model.Chat{
+						AgentID:    req.AgentID,
 						User:       req.UserID,
 						ReqContent: req.MSG,
 						ResContent: messageText,
@@ -285,7 +411,7 @@ func (l *ChatLogic) Chat(req *types.ChatReq) (resp *types.ChatReply, err error) 
 
 			// 一次性响应
 			if l.model == openai.TextModel {
-				messageText, err = c.Completion(collection.GetCompletionSummary())
+				messageText, err = c.Completion(prompts)
 			} else {
 				messageText, err = c.Chat(prompts)
 			}
@@ -301,11 +427,12 @@ func (l *ChatLogic) Chat(req *types.ChatReq) (resp *types.ChatReply, err error) 
 			// 把数据 发给微信用户
 			go sendToUser(req.AgentID, req.UserID, messageText, l.svcCtx.Config)
 
-			collection.Set("", messageText, true)
+			collection.Set(openai.NewChatContent(), messageText, conversationId, true)
 
 			// 再去插入数据
-			_, _ = l.svcCtx.ChatModel.Insert(context.Background(), &model.Chat{
-				AgentId:    req.AgentID,
+			table := l.svcCtx.ChatModel.Chat
+			_ = table.WithContext(context.Background()).Create(&model.Chat{
+				AgentID:    req.AgentID,
 				User:       req.UserID,
 				ReqContent: req.MSG,
 				ResContent: messageText,
@@ -331,7 +458,7 @@ func (l *ChatLogic) setBaseHost() (ls *ChatLogic) {
 }
 
 func (l *ChatLogic) setModelName(agentID int64) (ls *ChatLogic) {
-	m := l.svcCtx.Config.WeCom.Model
+	m := "gpt-3.5-turbo"
 	for _, application := range l.svcCtx.Config.WeCom.MultipleApplication {
 		if application.AgentID == agentID {
 			m = application.Model
@@ -347,7 +474,7 @@ func (l *ChatLogic) setModelName(agentID int64) (ls *ChatLogic) {
 }
 
 func (l *ChatLogic) setBasePrompt(agentID int64) (ls *ChatLogic) {
-	p := l.svcCtx.Config.WeCom.BasePrompt
+	p := ""
 	for _, application := range l.svcCtx.Config.WeCom.MultipleApplication {
 		if application.AgentID == agentID {
 			p = application.BasePrompt
@@ -381,7 +508,7 @@ func (l *ChatLogic) FactoryCommend(req *types.ChatReq) (proceed bool, err error)
 	template["#system"] = CommendSystem{}
 	template["#welcome"] = CommendWelcome{}
 	template["#about"] = CommendAbout{}
-	template["#usage"] = CommendUsage{}
+	//template["#usage"] = CommendUsage{}
 	template["#plugin"] = CommendPlugin{}
 
 	for s, data := range template {
@@ -399,14 +526,9 @@ func sendToUser(agentID any, userID, msg string, config config.Config, file ...s
 	// 根据 agentID 的类型 执行不同的方法
 	switch agentID.(type) {
 	case int64:
-		// 确认多应用模式是否开启
-		corpSecret := config.WeCom.DefaultAgentSecret
-		// 兼容性调整 取 DefaultAgentSecret 作为默认值 兼容老版本 CorpSecret
-		if corpSecret == "" {
-			corpSecret = config.WeCom.CorpSecret
-		}
+		corpSecret := ""
 		for _, application := range config.WeCom.MultipleApplication {
-			if application.AgentID == agentID {
+			if application.AgentID == agentID.(int64) {
 				corpSecret = application.AgentSecret
 			}
 		}
@@ -493,12 +615,13 @@ func (p CommendConfigPrompt) exec(l *ChatLogic, req *types.ChatReq) bool {
 	}
 	// 去数据库新增用户的对话配置
 	chatConfig := model.ChatConfig{
-		AgentId: req.AgentID,
+		AgentID: req.AgentID,
 		User:    req.UserID,
 		Prompt:  msg,
 		Model:   l.model,
 	}
-	_, configErr := l.svcCtx.ChatConfigModel.Insert(context.Background(), &chatConfig)
+	table := l.svcCtx.ChatConfigModel.ChatConfig
+	configErr := table.WithContext(context.Background()).Create(&chatConfig)
 
 	if configErr != nil {
 		sendToUser(req.AgentID, req.UserID, "设置失败,请稍后再试~", l.svcCtx.Config)
@@ -532,12 +655,13 @@ func (p CommendConfigModel) exec(l *ChatLogic, req *types.ChatReq) bool {
 
 	// 去数据库新增用户的对话配置
 	chatConfig := model.ChatConfig{
-		AgentId: req.AgentID,
+		AgentID: req.AgentID,
 		User:    req.UserID,
 		Prompt:  l.basePrompt,
 		Model:   msg,
 	}
-	_, configErr := l.svcCtx.ChatConfigModel.Insert(context.Background(), &chatConfig)
+	table := l.svcCtx.ChatConfigModel.ChatConfig
+	configErr := table.WithContext(context.Background()).Create(&chatConfig)
 
 	if configErr != nil {
 		sendToUser(req.AgentID, req.UserID, "设置失败,请稍后再试~", l.svcCtx.Config)
@@ -552,10 +676,11 @@ type CommendConfigClear struct{}
 
 func (p CommendConfigClear) exec(l *ChatLogic, req *types.ChatReq) bool {
 	// 去数据库删除 用户的所有对话配置
-	builder := l.svcCtx.ChatConfigModel.RowBuilder().Where(squirrel.Eq{"user": req.UserID}).Where(squirrel.Eq{"agent_id": req.AgentID})
-	collection, _ := l.svcCtx.ChatConfigModel.FindAll(context.Background(), builder)
+	table := l.svcCtx.ChatConfigModel.ChatConfig
+	collection, _ := table.WithContext(context.Background()).Where(table.User.Eq(req.UserID)).
+		Where(table.AgentID.Eq(req.AgentID)).Find()
 	for _, val := range collection {
-		_ = l.svcCtx.ChatConfigModel.Delete(context.Background(), val.Id)
+		_, _ = table.WithContext(context.Background()).Where(table.ID.Eq(val.ID)).Delete()
 	}
 	sendToUser(req.AgentID, req.UserID, "对话设置已恢复初始化", l.svcCtx.Config)
 	return false
@@ -575,7 +700,13 @@ func (p CommendWelcome) exec(l *ChatLogic, req *types.ChatReq) bool {
 	if _, err := redis.Rdb.Get(context.Background(), cacheKey).Result(); err == nil {
 		return false
 	}
-	sendToUser(req.AgentID, req.UserID, l.svcCtx.Config.WeCom.Welcome, l.svcCtx.Config)
+	welcome := ""
+	for _, s := range l.svcCtx.Config.WeCom.MultipleApplication {
+		if s.AgentID == req.AgentID {
+			welcome = s.Welcome
+		}
+	}
+	sendToUser(req.AgentID, req.UserID, welcome, l.svcCtx.Config)
 	_, err := redis.Rdb.SetEx(context.Background(), cacheKey, "1", 24*15*time.Hour).Result()
 	if err != nil {
 		fmt.Println("welcome2:" + err.Error())
@@ -592,37 +723,96 @@ func (p CommendImage) exec(l *ChatLogic, req *types.ChatReq) bool {
 		sendToUser(req.AgentID, req.UserID, "请输入完整的设置 如：#image:https://www.google.com/img/bd_logo1.png", l.svcCtx.Config)
 		return false
 	}
-	vi := reflect.ValueOf(l.svcCtx.Config.OCR)
-	if vi.Kind() == reflect.Ptr && vi.IsNil() {
-		sendToUser(req.AgentID, req.UserID, "请先配置OCR", l.svcCtx.Config)
-		return false
-	}
-	if l.svcCtx.Config.OCR.Company != "ali" {
-		sendToUser(req.AgentID, req.UserID, "目前只支持阿里OCR", l.svcCtx.Config)
-		return false
-	}
-	ocrCli, _err := ocr.CreateClient(&l.svcCtx.Config.OCR.AliYun.AccessKeyId, &l.svcCtx.Config.OCR.AliYun.AccessKeySecret)
-	if _err != nil {
-		// 创建失败
-		sendToUser(req.AgentID, req.UserID, "图片识别客户端创建失败失败:"+_err.Error(), l.svcCtx.Config)
-		return false
-	}
+	//// 将 URL 存入memory 中，需要时候，再取出来 进行 base64 暂时不能这么处理 gemini 不支持 带图片文本的多轮对话
+	//cacheKey := fmt.Sprintf(redis.ImageTemporaryKey, req.AgentID, req.UserID)
+	//// 可存入多张图片
+	//res, err := redis.Rdb.HSet(context.Background(), cacheKey, time.Now().Unix(), msg).Result()
+	//if err != nil {
+	//	sendToUser(req.AgentID, req.UserID, "图片保存失败:"+err.Error(), l.svcCtx.Config)
+	//	return false
+	//}
+	//if res == 0 {
+	//	sendToUser(req.AgentID, req.UserID, "图片保存失败，请稍后再试~", l.svcCtx.Config)
+	//	return false
+	//}
+	//sendToUser(req.AgentID, req.UserID, "已收到您的图片，关于图片你想了解什么呢~", l.svcCtx.Config)
+	//
+	//return false
 
-	// 进行图片识别
-	txt, err := ocr.Image2Txt(msg, ocrCli)
+	// 中间思路，请求进行图片识别
+	c := gemini.NewChatClient(l.svcCtx.Config.Gemini.Key).WithHost(l.svcCtx.Config.Gemini.Host).
+		WithTemperature(l.svcCtx.Config.Gemini.Temperature).WithModel(gemini.VisionModel)
+	if l.svcCtx.Config.Gemini.EnableProxy {
+		c = c.WithHttpProxy(l.svcCtx.Config.Proxy.Http).WithSocks5Proxy(l.svcCtx.Config.Proxy.Socket5).
+			WithProxyUserName(l.svcCtx.Config.Proxy.Auth.Username).
+			WithProxyPassword(l.svcCtx.Config.Proxy.Auth.Password)
+	}
+	var parseImage []gemini.ChatModelMessage
+	// 将 图片 转成 base64
+	base64Data, mime, err := gemini.GetImageContent(msg)
+	if err != nil {
+		sendToUser(req.AgentID, req.UserID, "图片解析失败:"+err.Error(), l.svcCtx.Config)
+		return false
+	}
+	sendToUser(req.AgentID, req.UserID, "好的收到了您的图片，正在识别中~", l.svcCtx.Config)
+	result, err := c.Chat(append(parseImage, gemini.ChatModelMessage{
+		Role:    gemini.UserRole,
+		Content: gemini.NewChatContent(base64Data, mime),
+	}, gemini.ChatModelMessage{
+		Role:    gemini.UserRole,
+		Content: gemini.NewChatContent("你能详细描述图片中的内容吗？"),
+	}))
 	if err != nil {
 		sendToUser(req.AgentID, req.UserID, "图片识别失败:"+err.Error(), l.svcCtx.Config)
 		return false
 	}
-	if msg == "" {
-		sendToUser(req.AgentID, req.UserID, "图片识别失败:"+err.Error(), l.svcCtx.Config)
-		return false
-	}
-	// 图片识别成功
-	sendToUser(req.AgentID, req.UserID, "图片识别成功:\n\n"+txt, l.svcCtx.Config)
 
-	l.message = txt
-	return true
+	sendToUser(req.AgentID, req.UserID, "图片识别完成:\n\n"+result, l.svcCtx.Config)
+	// 将其存入 上下文
+	gemini.NewUserContext(
+		gemini.GetUserUniqueID(req.UserID, strconv.FormatInt(req.AgentID, 10)),
+	).WithModel(c.Model).
+		WithPrompt(l.svcCtx.Config.Gemini.Prompt).
+		WithClient(c).
+		Set(
+			gemini.NewChatContent(
+				"我向你描述一副图片的内容如下：\n\n"+result),
+			"收到,我理解了您的图片！",
+			"",
+			true,
+		)
+	return false
+	//vi := reflect.ValueOf(l.svcCtx.Config.OCR)
+	//if vi.Kind() == reflect.Ptr && vi.IsNil() {
+	//	sendToUser(req.AgentID, req.UserID, "请先配置OCR", l.svcCtx.Config)
+	//	return false
+	//}
+	//if l.svcCtx.Config.OCR.Company != "ali" {
+	//	sendToUser(req.AgentID, req.UserID, "目前只支持阿里OCR", l.svcCtx.Config)
+	//	return false
+	//}
+	//ocrCli, _err := ocr.CreateClient(&l.svcCtx.Config.OCR.AliYun.AccessKeyId, &l.svcCtx.Config.OCR.AliYun.AccessKeySecret)
+	//if _err != nil {
+	//	// 创建失败
+	//	sendToUser(req.AgentID, req.UserID, "图片识别客户端创建失败失败:"+_err.Error(), l.svcCtx.Config)
+	//	return false
+	//}
+	//
+	//// 进行图片识别
+	//txt, err := ocr.Image2Txt(msg, ocrCli)
+	//if err != nil {
+	//	sendToUser(req.AgentID, req.UserID, "图片识别失败:"+err.Error(), l.svcCtx.Config)
+	//	return false
+	//}
+	//if msg == "" {
+	//	sendToUser(req.AgentID, req.UserID, "图片识别失败:"+err.Error(), l.svcCtx.Config)
+	//	return false
+	//}
+	//// 图片识别成功
+	//sendToUser(req.AgentID, req.UserID, "图片识别成功:\n\n"+txt, l.svcCtx.Config)
+	//
+	//l.message = txt
+	//return true
 }
 
 type CommendPromptList struct{}
@@ -630,12 +820,11 @@ type CommendPromptList struct{}
 func (p CommendPromptList) exec(l *ChatLogic, req *types.ChatReq) bool {
 	// #prompt:list
 	// 去数据库获取用户的所有prompt
-	collection, _ := l.svcCtx.PromptConfigModel.FindAll(context.Background(),
-		l.svcCtx.PromptConfigModel.RowBuilder().Where(squirrel.Gt{"id": 1}),
-	)
+	e := l.svcCtx.PromptConfigModel.PromptConfig
+	collection, _ := e.WithContext(context.Background()).Where(e.ID.Gt(1)).Find()
 	var prompts []string
 	for _, val := range collection {
-		prompts = append(prompts, fmt.Sprintf("%s:%d", val.Key, val.Id))
+		prompts = append(prompts, fmt.Sprintf("%s:%d", val.Key, val.ID))
 	}
 	sendToUser(req.AgentID, req.UserID, "您的prompt如下：\n"+strings.Join(prompts, "\n"), l.svcCtx.Config)
 	return false
@@ -658,19 +847,21 @@ func (p CommendPromptSet) exec(l *ChatLogic, req *types.ChatReq) bool {
 		return false
 	}
 	//去根据用户输入的prompt去数据库查询是否存在
-	prompt, _err := l.svcCtx.PromptConfigModel.FindOne(context.Background(), mId)
-	switch _err {
-	case model.ErrNotFound:
+	e := l.svcCtx.PromptConfigModel.PromptConfig
+	prompt, _err := e.WithContext(context.Background()).Where(e.ID.Eq(mId)).First()
+	switch {
+	case errors.Is(_err, gorm.ErrRecordNotFound):
 		sendToUser(req.AgentID, req.UserID, "此 prompt 不存在，请确认后再试", l.svcCtx.Config)
-	case nil:
+	case _err == nil:
 		// 去数据库新增用户的对话配置
 		chatConfig := model.ChatConfig{
-			AgentId: req.AgentID,
+			AgentID: req.AgentID,
 			User:    req.UserID,
 			Prompt:  prompt.Value,
 			Model:   l.model,
 		}
-		_, configErr := l.svcCtx.ChatConfigModel.Insert(context.Background(), &chatConfig)
+		table := l.svcCtx.ChatConfigModel.ChatConfig
+		configErr := table.WithContext(context.Background()).Create(&chatConfig)
 
 		if configErr != nil {
 			sendToUser(req.AgentID, req.UserID, msg+"设置失败:"+configErr.Error(), l.svcCtx.Config)
@@ -698,7 +889,7 @@ func (p CommendVoice) exec(l *ChatLogic, req *types.ChatReq) bool {
 		WithOrigin(l.svcCtx.Config.OpenAi.Origin).
 		WithEngine(l.svcCtx.Config.OpenAi.Engine)
 
-	if l.svcCtx.Config.Proxy.Enable {
+	if l.svcCtx.Config.OpenAi.EnableProxy {
 		c = c.WithHttpProxy(l.svcCtx.Config.Proxy.Http).WithSocks5Proxy(l.svcCtx.Config.Proxy.Socket5).
 			WithProxyUserName(l.svcCtx.Config.Proxy.Auth.Username).
 			WithProxyPassword(l.svcCtx.Config.Proxy.Auth.Password)
@@ -842,7 +1033,7 @@ func (p CommendDraw) exec(l *ChatLogic, req *types.ChatReq) bool {
 						WithTemperature(0).
 						WithTotalToken(l.svcCtx.Config.OpenAi.TotalToken)
 
-					if l.svcCtx.Config.Proxy.Enable {
+					if l.svcCtx.Config.OpenAi.EnableProxy {
 						c = c.WithHttpProxy(l.svcCtx.Config.Proxy.Http).WithSocks5Proxy(l.svcCtx.Config.Proxy.Socket5).
 							WithProxyUserName(l.svcCtx.Config.Proxy.Auth.Username).
 							WithProxyPassword(l.svcCtx.Config.Proxy.Auth.Password)
@@ -854,7 +1045,12 @@ func (p CommendDraw) exec(l *ChatLogic, req *types.ChatReq) bool {
 					} else {
 						translatePrompt = fmt.Sprintf(draw.TranslatePrompt, prompt)
 					}
-					changedPrompt, err := c.Completion(translatePrompt)
+					changedPrompt, err := c.Completion([]openai.ChatModelMessage{
+						{
+							Role:    openai.UserRole,
+							Content: openai.NewChatContent(translatePrompt),
+						},
+					})
 					if err != nil {
 						sendToUser(req.AgentID, req.UserID, "系统错误:关键词转为绘画 prompt 失败"+err.Error(), l.svcCtx.Config)
 						return
@@ -901,55 +1097,54 @@ func (p CommendDraw) exec(l *ChatLogic, req *types.ChatReq) bool {
 	return false
 }
 
-type CommendUsage struct{}
-
-func (p CommendUsage) exec(l *ChatLogic, req *types.ChatReq) bool {
-	if strings.HasPrefix(req.MSG, "#usage") {
-		// 查询自己key的使用情况
-		key := l.svcCtx.Config.OpenAi.Key
-		if strings.HasPrefix(req.MSG, "#usage:") {
-			key = strings.Replace(req.MSG, "#usage:", "", -1)
-		}
-		// 查询使用情况
-
-		usage, err := openai.GetUsageByKey(
-			key, l.baseHost, l.svcCtx.Config.Proxy.Enable, l.svcCtx.Config.Proxy.Http, l.svcCtx.Config.Proxy.Socket5,
-			l.svcCtx.Config.Proxy.Auth.Username, l.svcCtx.Config.Proxy.Auth.Password,
-		)
-
-		if err != nil {
-			logx.Info("get usage fail", err)
-			sendToUser(req.AgentID, req.UserID, "查询使用情况失败，请重新尝试~", l.svcCtx.Config)
-			return false
-		}
-		// openai client
-		c := openai.NewChatClient(key).
-			WithModel(l.model).
-			WithBaseHost(l.baseHost).
-			WithOrigin(l.svcCtx.Config.OpenAi.Origin).
-			WithEngine(l.svcCtx.Config.OpenAi.Engine).
-			WithMaxToken(l.svcCtx.Config.OpenAi.MaxToken).
-			WithTemperature(l.svcCtx.Config.OpenAi.Temperature).
-			WithTotalToken(l.svcCtx.Config.OpenAi.TotalToken)
-
-		if l.svcCtx.Config.Proxy.Enable {
-			c = c.WithHttpProxy(l.svcCtx.Config.Proxy.Http).WithSocks5Proxy(l.svcCtx.Config.Proxy.Socket5).
-				WithProxyUserName(l.svcCtx.Config.Proxy.Auth.Username).
-				WithProxyPassword(l.svcCtx.Config.Proxy.Auth.Password)
-		}
-		hasGpt4Msg := "否"
-		if c.HasGpt4() {
-			hasGpt4Msg = "是"
-		}
-		sendToUser(req.AgentID, req.UserID, fmt.Sprintf(
-			"当前key的使用情况：\n到期时间：%s\n总计可用金额：%f$\n账户名称：%s\n已使用金额：%f$\n剩余可用金额：%f$\n是否绑卡：%s\n是否有gpt4权限：%s\n",
-			usage.AccessUntil, usage.HardLimitUsd, usage.AccountName, usage.UsedAmountUsd, usage.RemainingAmountUsd,
-			usage.HasPaymentMethod, hasGpt4Msg,
-		), l.svcCtx.Config)
-		return false
-	}
-	return true
-}
+//type CommendUsage struct{}
+//func (p CommendUsage) exec(l *ChatLogic, req *types.ChatReq) bool {
+//	if strings.HasPrefix(req.MSG, "#usage") {
+//		// 查询自己key的使用情况
+//		key := l.svcCtx.Config.OpenAi.Key
+//		if strings.HasPrefix(req.MSG, "#usage:") {
+//			key = strings.Replace(req.MSG, "#usage:", "", -1)
+//		}
+//		// 查询使用情况
+//
+//		usage, err := openai.GetUsageByKey(
+//			key, l.baseHost, l.svcCtx.Config.Proxy.Enable, l.svcCtx.Config.Proxy.Http, l.svcCtx.Config.Proxy.Socket5,
+//			l.svcCtx.Config.Proxy.Auth.Username, l.svcCtx.Config.Proxy.Auth.Password,
+//		)
+//
+//		if err != nil {
+//			logx.Info("get usage fail", err)
+//			sendToUser(req.AgentID, req.UserID, "查询使用情况失败，请重新尝试~", l.svcCtx.Config)
+//			return false
+//		}
+//		// openai client
+//		c := openai.NewChatClient(key).
+//			WithModel(l.model).
+//			WithBaseHost(l.baseHost).
+//			WithOrigin(l.svcCtx.Config.OpenAi.Origin).
+//			WithEngine(l.svcCtx.Config.OpenAi.Engine).
+//			WithMaxToken(l.svcCtx.Config.OpenAi.MaxToken).
+//			WithTemperature(l.svcCtx.Config.OpenAi.Temperature).
+//			WithTotalToken(l.svcCtx.Config.OpenAi.TotalToken)
+//
+//		if l.svcCtx.Config.Proxy.Enable {
+//			c = c.WithHttpProxy(l.svcCtx.Config.Proxy.Http).WithSocks5Proxy(l.svcCtx.Config.Proxy.Socket5).
+//				WithProxyUserName(l.svcCtx.Config.Proxy.Auth.Username).
+//				WithProxyPassword(l.svcCtx.Config.Proxy.Auth.Password)
+//		}
+//		hasGpt4Msg := "否"
+//		if c.HasGpt4() {
+//			hasGpt4Msg = "是"
+//		}
+//		sendToUser(req.AgentID, req.UserID, fmt.Sprintf(
+//			"当前key的使用情况：\n到期时间：%s\n总计可用金额：%f$\n账户名称：%s\n已使用金额：%f$\n剩余可用金额：%f$\n是否绑卡：%s\n是否有gpt4权限：%s\n",
+//			usage.AccessUntil, usage.HardLimitUsd, usage.AccountName, usage.UsedAmountUsd, usage.RemainingAmountUsd,
+//			usage.HasPaymentMethod, hasGpt4Msg,
+//		), l.svcCtx.Config)
+//		return false
+//	}
+//	return true
+//}
 
 type CommendPlugin struct{}
 

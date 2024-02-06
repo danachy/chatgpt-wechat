@@ -8,13 +8,13 @@ import (
 type Config struct {
 	rest.RestConf
 
-	Mysql struct {
+	PGSql struct {
 		DataSource string
 	}
 
 	RedisCache cache.CacheConf
 
-	SystemVersion string `json:",optional,default=v0.6.5.0"`
+	SystemVersion string `json:",optional,default=v0.6.6.0"`
 
 	// jwt 配置
 	Auth struct {
@@ -24,37 +24,30 @@ type Config struct {
 
 	// 企业微信，配置信息
 	WeCom struct {
-		Port                  int `json:",optional,default=8887"`
-		CorpID                string
-		DefaultAgentSecret    string `json:",optional"`
-		CustomerServiceSecret string `json:",optional"`
-		CorpSecret            string `json:",optional"`
-		Model                 string `json:",optional,default=gpt-3.5-turbo"`
-		BasePrompt            string `json:",optional,default=你是ChatGPT，一个由OpenAI训练的大型语言模型，你旨在回答并解决人们的任何问题，并且可以使用多种语言与人交流。"`
-		Welcome               string `json:",optional,default=您好！我是ChatGPT，一个由OpenAI训练的大型语言模型，我可以回答您的问题和进行交流。请告诉我您需要了解些什么，我会尽力为您提供答案。\n\n发送#help查看更多功能"`
-		Token                 string `json:",optional"`
-		EncodingAESKey        string `json:",optional"`
-		MultipleApplication   []struct {
-			AgentID     int64
-			AgentSecret string
-			Model       string `json:",optional,default=gpt-3.5-turbo"`
-			BasePrompt  string `json:",optional,default=你是ChatGPT，一个由OpenAI训练的大型语言模型，你旨在回答并解决人们的任何问题，并且可以使用多种语言与人交流。"`
-			Welcome     string `json:",optional,default=您好！我是ChatGPT，一个由OpenAI训练的大型语言模型，我可以回答您的问题和进行交流。请告诉我您需要了解些什么，我会尽力为您提供答案。\n\n发送#help查看更多功能"`
-			GroupEnable bool   `json:",optional,default=false"`
-			GroupName   string `json:",optional,default=ChatGPT应用内部交流群"`
-			GroupChatID string `json:",optional,default=ChatGPT202304021958"`
-		} `json:",optional"`
+		Port                int `json:",optional,default=8887"`
+		CorpID              string
+		Token               string `json:",optional"`
+		EncodingAESKey      string `json:",optional"`
+		MultipleApplication []struct {
+			AgentID            int64
+			AgentSecret        string
+			ManageAllKFSession bool   `json:",optional,default=false"`
+			Model              string `json:",optional,default=gpt-3.5-turbo"`
+			BasePrompt         string `json:",optional,default=你是ChatGPT，一个由OpenAI训练的大型语言模型，你旨在回答并解决人们的任何问题，并且可以使用多种语言与人交流。"`
+			Welcome            string `json:",optional,default=您好！我是ChatGPT，一个由OpenAI训练的大型语言模型，我可以回答您的问题和进行交流。请告诉我您需要了解些什么，我会尽力为您提供答案。\n\n发送#help查看更多功能"`
+		}
 	}
 
 	// openai 配置
 	OpenAi struct {
-		Key         string
+		Key         string  `json:",optional,default="`
 		Host        string  `json:",optional,default=https://api.openai.com"`
 		Origin      string  `json:",optional,default=open_ai"`
 		Engine      string  `json:",optional,default="`
 		MaxToken    int     `json:",optional,default=2000"`
 		TotalToken  int     `json:",optional,default=3900"`
 		Temperature float32 `json:",optional,default=0.8"`
+		EnableProxy bool    `json:",optional,default=false"`
 	}
 
 	// http proxy 设置
@@ -147,4 +140,19 @@ type Config struct {
 	Session struct {
 		TimeOut int64 `json:",optional,default=-1"`
 	} `json:",optional"`
+
+	// 服务提供者
+	ModelProvider struct {
+		Company string `json:",optional,default=openai"`
+	}
+
+	// google gemini
+	Gemini struct {
+		Key         string  `json:",optional"`
+		Host        string  `json:",optional,default=https://generativelanguage.googleapis.com"`
+		Model       string  `json:",optional,default=gemini-pro"`
+		Temperature float32 `json:",optional,default=0.8"`
+		Prompt      string  `json:",optional,default=''"`
+		EnableProxy bool    `json:",optional,default=false"`
+	}
 }

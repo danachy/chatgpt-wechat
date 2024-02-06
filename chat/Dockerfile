@@ -1,4 +1,5 @@
-FROM golang:1.21.2-alpine AS builder
+FROM golang:1.21.6-alpine AS builder
+
 # 为镜像设置必要的环境变量
 ENV GO111MODULE=on \
     CGO_ENABLED=0 \

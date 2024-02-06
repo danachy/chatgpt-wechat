@@ -3,39 +3,165 @@ syntax = "v1"
 import (
 	"doc/user.api"
 	"doc/chat.api"
+	"doc/knowledge.api"
+	"doc/bots.api"
 )
 
-info(
-	title: "chat service api"
-	desc: "chat service api desc"
-	author: "type author here"
-	email: "type email here"
+info (
+	title:   "chat service api"
+	desc:    "chat service api desc"
+	author:  "type author here"
+	email:   "type email here"
 	version: "v1"
 )
 
-@server(
+@server (
 	middleware: AccessLog // 路由中间件声明
-	prefix: api
+	prefix:     /api
 )
-
 service chat-api {
 	@handler UserRegisterHandler
 	post /user/register (UserRegisterReq) returns (UserRegisterReply)
-	
+
 	@handler UserLoginHandler
 	post /user/login (UserLoginReq) returns (UserLoginReply)
 }
 
 // 需要鉴权的服务
-@server(
+@server (
 	middleware: AccessLog // 路由中间件声明
-	prefix: api
-	jwt: Auth // jwt中间件声明
+	prefix:     /api
+	jwt:        Auth // jwt中间件声明
 )
 service chat-api {
 	@handler ChatHandler
 	post /msg/push (ChatReq) returns (ChatReply)
-	
+
 	@handler CustomerChatHandler
 	post /msg/customer/push (CustomerChatReq) returns (CustomerChatReply)
+
+	@handler UserDetailHandler
+	get /user/detail (UserDetailReq) returns (UserDetailReply)
+
+	// bot 相关业务
+	@handler BotCreateHandler
+	post /bot/create (BotCreateReq) returns (BotCreateReply)
+
+	@handler BotUpdateHandler
+	post /bot/update (BotUpdateReq) returns (BotUpdateReply)
+
+	@handler BotDeleteHandler
+	post /bot/delete (BotDeleteReq) returns (BotDeleteReply)
+
+	@handler BotDetailHandler
+	post /bot/detail (BotDetailReq) returns (BotDetailReply)
+
+	@handler BotListHandler
+	post /bot/list (BotListReq) returns (BotListReply)
+
+	@handler BotPromptUpdateHandler
+	post /bot/prompt/update (BotPromptUpdateReq) returns (BotPromptUpdateReply)
+
+	@handler BotReplicateHandler
+	post /bot/replicate (BotReplicateReq) returns (BotReplicateReply)
+
+	// chat with bot
+	@handler BotChatHandler
+	post /bot/chat (BotChatReq) returns (BotChatReply)
+
+	// chat with bot whole history
+	@handler BotChatHistoryHandler
+	post /bot/chat/history (BotChatHistoryReq) returns (BotChatHistoryReply)
+
+	// clear chat history
+	@handler BotChatHistoryClearHandler
+	post /bot/chat/history/clear (BotChatHistoryClearReq) returns (BotChatHistoryClearReply)
+
+	// optimize prompt
+	@handler BotOptimizePromptHandler
+	post /bot/prompt/optimize (BotOptimizePromptReq) returns (BotOptimizePromptReply)
+
+	// explore bot list
+	@handler BotExploreListHandler
+	post /bot/explore/list (BotExploreListReq) returns (BotExploreListReply)
+
+	// 客服列表API
+	@handler CustomerListHandler
+	post /bot/customer/list (BotCustomListReq) returns (BotCustomListReply)
+
+	// bot 关联 客服
+	@handler BotCustomerUpdateHandler
+	post /bot/customer/update (BotCustomUpdateReq) returns (BotCustomUpdateReply)
+
+	// bot 关联 model
+	@handler BotModelUpdateHandler
+	post /bot/model/update (BotModelUpdateReq) returns (BotModelUpdateReply)
+
+	// 查询 bot 关联 model 详情
+	@handler BotModelDetailHandler
+	post /bot/model/detail (BotModelDetailReq) returns (BotModelDetailReply)
+
+	// bot 关联 knowledge
+	@handler BotKnowledgeUpdateHandler
+	post /bot/knowledge/update (BotKnowledgeUpdateReq) returns (BotKnowledgeUpdateReply)
+
+	// Knowledge 相关业务
+	// Knowledge 新增
+	@handler KnowledgeCreateHandler
+	post /knowledge/create (KnowledgeCreateReq) returns (KnowledgeCreateReply)
+
+	// Knowledge 更新
+	@handler KnowledgeUpdateHandler
+	post /knowledge/update (KnowledgeUpdateReq) returns (KnowledgeUpdateReply)
+
+	// Knowledge 删除
+	@handler KnowledgeDeleteHandler
+	post /knowledge/delete (KnowledgeDeleteReq) returns (KnowledgeDeleteReply)
+
+	// Knowledge 列表
+	@handler KnowledgeListHandler
+	post /knowledge/list (KnowledgeListReq) returns (KnowledgeListReply)
+
+	// KnowledgeUnit 相关业务
+	// KnowledgeUnit 新增
+	@handler KnowledgeUnitCreateHandler
+	post /knowledge/unit/create (KnowledgeUnitCreateReq) returns (KnowledgeUnitCreateReply)
+
+	// KnowledgeUnit 更新
+	@handler KnowledgeUnitUpdateHandler
+	post /knowledge/unit/update (KnowledgeUnitUpdateReq) returns (KnowledgeUnitUpdateReply)
+
+	// KnowledgeUnit 详情
+	@handler KnowledgeUnitDetailHandler
+	post /knowledge/unit/detail (KnowledgeUnitDetailReq) returns (KnowledgeUnitDetailReply)
+
+	// KnowledgeUnit 开启关闭
+	@handler KnowledgeUnitSwitchHandler
+	post /knowledge/unit/switch (KnowledgeUnitSwitchReq) returns (KnowledgeUnitSwitchReply)
+
+	// KnowledgeUnit 删除
+	@handler KnowledgeUnitDeleteHandler
+	post /knowledge/unit/delete (KnowledgeUnitDeleteReq) returns (KnowledgeUnitDeleteReply)
+
+	// KnowledgeUnit 列表
+	@handler KnowledgeUnitListHandler
+	post /knowledge/unit/list (KnowledgeUnitListReq) returns (KnowledgeUnitListReply)
+
+	// KnowledgeSegments 相关业务
+	// KnowledgeSegments 新增
+	@handler KnowledgeSegmentsCreateHandler
+	post /knowledge/segments/create (KnowledgeSegmentsCreateReq) returns (KnowledgeSegmentsCreateReply)
+
+	// KnowledgeSegments 更新
+	@handler KnowledgeSegmentsUpdateHandler
+	post /knowledge/segments/update (KnowledgeSegmentsUpdateReq) returns (KnowledgeSegmentsUpdateReply)
+
+	// KnowledgeSegments 删除
+	@handler KnowledgeSegmentsDeleteHandler
+	post /knowledge/segments/delete (KnowledgeSegmentsDeleteReq) returns (KnowledgeSegmentsDeleteReply)
+
+	// KnowledgeSegmentsList 列表
+	@handler KnowledgeSegmentsListHandler
+	post /knowledge/segments/list (KnowledgeSegmentsListReq) returns (KnowledgeSegmentsListReply)
 }
+

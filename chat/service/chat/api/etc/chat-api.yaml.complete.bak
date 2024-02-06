@@ -2,12 +2,15 @@ Name: chat-api                                      # 项目名称
 Host: 0.0.0.0                                       # 项目监听地址
 Port: 8888                                          # 项目监听端口
 
-Mysql:                                              # mysql配置
-  DataSource: chat:123456@tcp(mysql57:3306)/chat?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai # 数据库连接地址 自建最好修改下密码
+#Mysql:
+#    DataSource: chat:Chat-gpt~wechat@tcp(mysql81:3306)/chat?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai # 数据库连接地址
+
+PGSql:
+  DataSource: "host=pgvector user=chat password=Chat-gpt~wechat dbname=chat port=5432 sslmode=disable TimeZone=Asia/Shanghai"
 
 RedisCache:                                         # redis缓存配置
   - Host: redis7:6379                               # redis缓存地址
-    Pass: "123456"                                  # redis缓存密码 自建最好修改下密码
+    Pass: "Chat-gpt~wechat"                        # redis缓存密码 自建最好修改下密码
 
 Auth:                                               # jwt配置（可选）自建最好修改下
   AccessSecret: "13450cd8841c0f0"                   # jwt加密密钥(可选) 默认为 13450cd8841c0f0
@@ -15,20 +18,19 @@ Auth:                                               # jwt配置（可选）自�
 
 WeCom:                                              # 企业微信配置
   Port: 8887                                        # 企业微信回调监听端口（可选）默认为8887
-  CustomerServiceSecret: "xxxx-xxxx-xxxx"           # 企业微信客服消息 Secret
   CorpID: "wwxxxxxxxxxxxxxxxxxxxx"                  # 企业微信 CorpID
-  DefaultAgentSecret: "55sO-xxxxxxxxxxxxxxxxxx"     # 企业微信应用 Secret
-  BasePrompt: "你是 ChatGPT， 一个由 OpenAI 训练的大型语言模型， 你旨在回答并解决人们的任何问题，并且可以使用多种语言与人交流。"                                  # openai 基础设定（可选）
-  Model: "gpt-3.5-turbo"                                                                                                                        # openai 模型（可选）默认为 gpt-3.5-turbo 可选[gpt-3.5-turbo-16k, gpt-4, text-davinci-003]
-  Welcome: "您好！我是 ChatGPT，一个由 OpenAI 训练的大型语言模型，我可以回答您的问题和进行交流。请告诉我您需要了解些什么，我会尽力为您提供答案。发送#help 查看更多功能"  # 进入应用时的欢迎语（可选）
   Token: "xxxxxxxxxx"                               # 企业微信应用/客服消息 Token
   EncodingAESKey: "xxxxxxxxxxxxxxxx"                # 企业微信应用/客服消息 EncodingAESKey
-  MultipleApplication:                              # 多应用配置（可选）
+  MultipleApplication:                              # 多应用配置
   - AgentID: 1000002                                # 企业微信应用ID
     AgentSecret: "55sO-xxxxxxxxxxxxxxxxxxxxxxx"     # 企业微信应用 Secret
-    Model: "gpt-3.5-turbo"                          # openai 模型（可选）默认为 gpt-3.5-turbo-0301
+    ManageAllKFSession: true                        # manage_all_kf_session 为 true 时，管理所有客服会话
+    Model: "gpt-3.5-turbo"                          # openai 模型（可选）默认为 gpt-3.5-turbo 可选[gpt-3.5-turbo-16k, gpt-4,gpt-4-32k]
     BasePrompt: "你是 ChatGPT， 一个由 OpenAI 训练的大型语言模型，你旨在回答并解决人们的任何问题，并且可以使用多种语言与人交流。" # openai 基础设定（可选）
     Welcome: "您好！我是 ChatGPT，一个由 OpenAI 训练的大型语言模型，我可以回答您的问题和进行交流。请告诉我您需要了解些什么，我会尽力为您提供答案。发送#help 查看更多功能"  # 进入应用时的欢迎语
+
+ModelProvider:                                      # 服务提供者 可选择 openai 与 gemini  默认为 openai
+  Company: "openai"                                 # openai / gemini
 
 OpenAi:                                             # openai配置
   Key: "xxxxxxxxxxxxxxxxxxxxx"                      # openai key
@@ -38,9 +40,16 @@ OpenAi:                                             # openai配置
   MaxToken: 2000                                    # 一次会话能响应内容的最大 token
   TotalToken: 3900                                  # 一次对话 openai 能处理的最大 token 数量 gpt3-3.5-turbo:4096 gpt-3.5-turbo-16k:16384 / gpt-4:8192 /gpt-4-32k:32768
   Temperature: 0.8                                  # 对话的创造性，当其逼近与0时，其响应的结果更加死板，当其趋近于1时，其对话更加符有跳跃与创造力
+  EnableProxy: false                                #（可选）是否启用代理，默认为 false
+
+Gemini:
+  Key: "AIzaxxxxx-xxxxx"                            # gemini key
+  Temperature: 0.8                                  # 对话的创造性，当其逼近与0时，其响应的结果更加死板，当其趋近于1时，其对话更加符有跳跃与创造力
+  Prompt: "你是 ChatGPT， 一个由 OpenAI 训练的大型语言模型，你旨在回答并解决人们的任何问题，并且可以使用多种语言与人交流。" # model 角色背景
+  Host: "https://generativelanguage.googleapis.com" #（可选） gemini host 默认为 https://generativelanguage.googleapis.com
+  EnableProxy: false                                #（可选）是否开启代理，默认为 false
 
 Proxy:                                              # （可选）代理配置
-  Enable: false                                     # （可选）是否启用代理，默认为 false
   Socket5: "127.0.0.1:1080"                         # （可选）代理地址 默认为空 如 127.0.0.1:1080
   Http: "http://127.0.0.1:1080"                     # （可选）代理地址 默认为空 如 http://127.0.0.1:1080
   Auth:                                             # （可选）代理认证
@@ -111,3 +120,5 @@ Draw:                                               # 绘画配置
 
 Session:                                            # 会话相关配置
   Timeout: -1                                       # 会话超时时间（m）分钟，如果在（x）分钟内，未进行对话，本次会话内容会被销毁，-1为永不超时（可选）
+
+

@@ -3,8 +3,6 @@
 - 云服务器 1h2g
     - 如果是自己注册的企业微信，那么其实是不需要域名的，直接ip访问
     - 如果是企业微信已经关联了备案主体，那么需要开一个备案的二级域名解析到服务器，nginx 做下转发就行
-- 其它情况，如我域名没备案，但是我就是想用这个域名解析到我的服务器，
-  - 那就就可以考虑下面这种 [云函数/网关转发思路，点击查看](./cloudfc.md) 
 - 相关网络与服务示意图
   ![system02.png](./system02.png)
 
@@ -41,7 +39,7 @@
 
 - **前提条件，需要有一个自己的服务器，或者云服务器**
 - 执行 `docker -v` 是否有版本号？[docker 安装官方文档](https://docs.docker.com/engine/install/)
-- 执行 `docker-compose -v` 是否有版本号？[docker-compose 安装官方文档](https://docs.docker.com/compose/install/standalone/)
+- 执行 `docker-compose -v` 或 `docker compose version` 二选一，是否有版本号？[docker-compose 安装官方文档](https://docs.docker.com/compose/install/standalone/)
 
   ![image29](./image29.png)
 
@@ -62,8 +60,23 @@ cp ./service/chat/api/etc/chat-api.yaml.bak ./service/chat/api/etc/chat-api.yaml
 vim ./service/chat/api/etc/chat-api.yaml
 ```
 
-- 修改这5个配置项  
-  ![image25.png](./image25.png)
+- 修改这几个配置项  
+```yaml
+WeCom:                                            # 企业微信配置
+CorpID: "wwxxxxxxxxxxxxxxxxxxxx"                  # 企业微信 CorpID
+Token: "xxxxxxxxxx"                               # 企业微信应用/客服消息 Token
+EncodingAESKey: "xxxxxxxxxxxxxxxx"                # 企业微信应用/客服消息 EncodingAESKey
+MultipleApplication:                              # 多应用配置
+- AgentID: 1000002                                # 企业微信应用ID
+  AgentSecret: "55sO-xxxxxxxxxxxxxxxxxxxxxxx"     # 企业微信应用 Secret
+  ManageAllKFSession: true                        # manage_all_kf_session 为 true 时，管理所有客服会话
+  Model: "gpt-3.5-turbo"                          # openai 模型（可选）默认为 gpt-3.5-turbo 可选[gpt-3.5-turbo-16k, gpt-4,gpt-4-32k]
+  BasePrompt: "你是 ChatGPT， 一个由 OpenAI 训练的大型语言模型，你旨在回答并解决人们的任何问题，并且可以使用多种语言与人交流。" # openai 基础设定（可选）
+  Welcome: "您好！我是 ChatGPT，一个由 OpenAI 训练的大型语言模型，我可以回答您的问题和进行交流。请告诉我您需要了解些什么，我会尽力为您提供答案。发送#help 查看更多功能"  # 进入应用时的欢迎语
+
+OpenAi:
+Key: "xxxxxxxxxxxxxxxxxxxxx"                      # OpenAi Key 
+```
 
 - 前四个是企业微信 的配置
     - 访问 企业微信-管理员页面 , 可在 我的企业 > 企业信息 > 底部 看到 CorpID
@@ -102,9 +115,14 @@ OpenAi:                                             # openai配置
 
 # 去 build 项目（第一次需要下载依赖，可能会比较慢）
 sudo docker-compose build
+# 或者
+sudo docker compose build
+
 
 # 启动集成应用
 sudo docker-compose up -d
+# 或者
+sudo docker compose up -d
 
 # 后续如果进行了版本升级，需要重新 build 再 up ，一般配置文件(chat-api.yaml)改动，只需要 docker-compose restart  web 就好
 ```

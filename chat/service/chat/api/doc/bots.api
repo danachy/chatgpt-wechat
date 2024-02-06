@@ -1,0 +1,194 @@
+syntax = "v1"
+
+info(
+    title: "bot 相关API"
+    desc: "创建智能机器人基础配置"
+    author: "whyiyhw"
+    email: "whyiyhw@outlook.com"
+    version: "v1"
+)
+
+type (
+    BotCreateReq {
+        Name string `json:"name" validate:"required,max=50" label:"机器人名称"`
+        Avatar string `json:"avatar" validate:"max=255" label:"机器人头像"`
+        Desc string `json:"desc,optional" validate:"max=255" label:"机器人描述"`
+    }
+
+    BotCreateReply {
+        ID string `json:"id" label:"机器人ID"`
+    }
+
+    BotUpdateReq {
+        ID int64 `json:"id" validate:"required,min=1" label:"机器人ID"`
+        Name string `json:"name" validate:"required,max=50" label:"机器人名称"`
+        Avatar string `json:"avatar" validate:"max=255" label:"机器人头像"`
+        Desc string `json:"desc,optional" validate:"max=255" label:"机器人描述"`
+    }
+
+    BotUpdateReply {
+    }
+
+    BotPromptUpdateReq {
+        ID int64 `json:"id" validate:"required,min=1" label:"机器人ID"`
+        Prompt string `json:"prompt" validate:"required" label:"机器人基础提示词配置"`
+    }
+    BotPromptUpdateReply {
+    }
+
+    BotDeleteReq {
+        ID int64 `json:"id" validate:"required,min=1" label:"机器人ID"`
+    }
+
+    BotDeleteReply {
+    }
+    // 复制请求
+    BotReplicateReq {
+        ID int64 `json:"id" validate:"required,min=1" label:"机器人ID"`
+        OriginType int `json:"origin_type,optional,default=1" label:"复制类型 1:复制机器人 2: 复制prompt配置"`
+    }
+    // 复制响应
+    BotReplicateReply {
+        ID int64 `json:"id" label:"机器人ID"`
+    }
+
+    BotDetailReq {
+        ID int64 `json:"id" validate:"required,min=1" label:"机器人ID"`
+    }
+
+    BotDetailReply {
+        ID int64 `json:"id" label:"机器人ID"`
+        Name string `json:"name" label:"机器人名称"`
+        Avatar string `json:"avatar" label:"机器人头像"`
+        Desc string `json:"desc" label:"机器人描述"`
+        Prompt string `json:"prompt" label:"机器人基础提示词配置"`
+    }
+
+    BotListDetail {
+        ID int64 `json:"id" label:"机器人ID"`
+        Name string `json:"name" label:"机器人名称"`
+        Avatar string `json:"avatar" label:"机器人头像"`
+        Desc string `json:"desc" label:"机器人描述"`
+    }
+
+    BotListReq {
+        Page int `json:"page" validate:"required,min=1" label:"页码"`
+        PageSize int `json:"page_size" validate:"required,min=1" label:"每页数量"`
+    }
+
+    BotListReply {
+        Total int `json:"total" label:"总数"`
+        Page int `json:"page" label:"页码"`
+        PageSize int `json:"page_size" label:"每页数量"`
+        List []*BotListDetail `json:"list" label:"机器人列表"`
+    }
+
+    // chat with bot
+    BotChatReq {
+        MSG string `json:"msg" validate:"required" label:"消息"`
+        BotID int64 `json:"bot_id" validate:"required,min=1" label:"机器人ID"`
+    }
+
+    BotChatReply {
+        MessageID string `json:"message_id" label:"消息标识"`
+    }
+
+    // chat with bot history
+    BotChatHistoryReq {
+        BotID int64 `json:"bot_id" validate:"required,min=1" label:"机器人ID"`
+    }
+    BotChatWholeReply {
+        Role string `json:"role" label:"角色"`
+        Content BotChatContent `json:"content" label:"消息内容"`
+    }
+    BotChatContent {
+        MimeType string `json:"mime_type" label:"消息类型"`
+        Data string `json:"data" label:"消息内容"`
+    }
+    BotChatHistoryReply {
+        List []*BotChatWholeReply `json:"list" label:"消息列表"`
+    }
+    // clear chat history
+    BotChatHistoryClearReq {
+        BotID int64 `json:"bot_id" validate:"required,min=1" label:"机器人ID"`
+    }
+    BotChatHistoryClearReply {
+    }
+
+    // optimize prompt
+    BotOptimizePromptReq {
+        BotID int64 `json:"id" validate:"required,min=1" label:"机器人ID"`
+        OriginPrompt string `json:"prompt" validate:"required" label:"机器人基础提示词配置"`
+    }
+    BotOptimizePromptReply {
+        MessageID string `json:"message_id" label:"消息标识"`
+    }
+
+    // explore bot list
+    BotExploreListReq {
+        Page int `json:"page" validate:"required,min=1" label:"页码"`
+        PageSize int `json:"page_size" validate:"required,min=1" label:"每页数量"`
+    }
+    BotExploreListReply {
+        Total int `json:"total" label:"总数"`
+        Page int `json:"page" label:"页码"`
+        PageSize int `json:"page_size" label:"每页数量"`
+        List []*ExploreListBot `json:"list" label:"机器人列表"`
+    }
+    ExploreListBot {
+        ID int64 `json:"id" label:"提示词ID"`
+        Key string `json:"key" label:"key"`
+    }
+
+    // 获取客服列表
+    BotCustomListReq {
+        Page int `json:"page" validate:"required,min=1" label:"页码"`
+        PageSize int `json:"page_size" validate:"required,min=1" label:"每页数量"`
+    }
+    BotCustomListReply {
+        Total int `json:"total" label:"总数"`
+        Page int `json:"page" label:"页码"`
+        PageSize int `json:"page_size" label:"每页数量"`
+        List []*BotCustomListDetail `json:"list" label:"机器人列表"`
+    }
+    BotCustomListDetail {
+        OpenKfid string `json:"open_kf_id" label:"客服ID"`
+        Name string `json:"name" label:"客服名称"`
+        Avatar string `json:"avatar" label:"客服头像"`
+        ManagePrivilege bool `json:"manage_privilege" label:"是否有管理权限"`
+    }
+    // bot 关联客服ID
+    BotCustomUpdateReq {
+        BotID int64 `json:"bot_id" validate:"required,min=1" label:"机器人ID"`
+        OpenKfid string `json:"open_kfid" validate:"required" label:"客服ID"`
+    }
+    BotCustomUpdateReply {
+    }
+    // bot 关联model设置
+    BotModelUpdateReq {
+        BotID int64 `json:"bot_id" validate:"required,min=1" label:"机器人ID"`
+        ModelType string `json:"model_type" validate:"required,oneof=openai gemini" label:"模型类型"`
+        ModelName string `json:"model_name" validate:"required" label:"模型名称"`
+        Temperature float64 `json:"temperature" validate:"required" label:"温度"`
+    }
+    BotModelUpdateReply {
+    }
+    // 查询 bot 关联model设置
+    BotModelDetailReq {
+        BotID int64 `json:"bot_id" validate:"required,min=1" label:"机器人ID"`
+    }
+    BotModelDetailReply {
+        ModelType string `json:"model_type"  label:"模型类型"`
+        ModelName string `json:"model_name" " label:"模型名称"`
+        Temperature float64 `json:"temperature" label:"温度"`
+    }
+
+    // bot 关联知识库
+    BotKnowledgeUpdateReq {
+        BotID int64 `json:"bot_id" validate:"required,min=1" label:"机器人ID"`
+        KnowledgeID int64 `json:"knowledge_id" validate:"required,min=1" label:"知识库ID"`
+    }
+    BotKnowledgeUpdateReply {
+    }
+
+)
